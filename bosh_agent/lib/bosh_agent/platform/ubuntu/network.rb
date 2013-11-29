@@ -32,7 +32,7 @@ module Bosh::Agent
     def write_dhcp_conf
       template = ERB.new(load_erb("dhclient_conf.erb"), 0, '%<>-')
       result = template.result(binding)
-      updated = Bosh::Agent::Util::update_file(result, '/etc/dhcp3/dhclient.conf')
+      updated = Bosh::Agent::Util::update_file(result, '/etc/dhcp/dhclient.conf')
       if updated
         @logger.info("Updated dhclient.conf")
         restart_dhclient
@@ -51,7 +51,7 @@ module Bosh::Agent
     # running (and dns changes will be flip floping each lease time). So
     # before restarting the network, we first kill all dhclient3 process.
     def restart_dhclient
-      sh("pkill dhclient3", :on_error => :return)
+      sh("pkill dhclient", :on_error => :return)
       sh("/etc/init.d/networking restart", :on_error => :return)
     end
 

@@ -3,7 +3,7 @@
 # UBUNTU_MIRROR=http://mirrors.us.kernel.org/ubuntu/
 
 # parameters for `base_debootstrap_release`
-# base_debootstrap_suite=precise
+base_debootstrap_suite=precise
 
 # parameters for `bosh_users`
 bosh_users_password=c1oudc0w
