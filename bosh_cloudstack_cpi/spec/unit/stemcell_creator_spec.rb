@@ -38,7 +38,7 @@ describe Bosh::CloudStackCloud::StemcellCreator do
       image_params = {
           :displaytext => "stemcell-name 0.7.0",
           :name => "BOSH-random",
-          :ostypeid => 2,
+          :ostypeid => 3,
           :snapshotid => "snap-xxxxxxxx",
       }
 
@@ -74,7 +74,7 @@ describe Bosh::CloudStackCloud::StemcellCreator do
 
       params[:displaytext].should == "stemcell-name 0.7.0"
       params[:name].should == "BOSH-random"
-      params[:ostypeid].should == 2
+      params[:ostypeid].should == 3
       params[:snapshotid].should == "id"
     end
   end
