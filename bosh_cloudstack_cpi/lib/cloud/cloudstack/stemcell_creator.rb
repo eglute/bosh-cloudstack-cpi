@@ -88,6 +88,13 @@ module Bosh::CloudStackCloud
         ostype.description == "Ubuntu 12.04 (64-bit)"
       end
 
+      # Since CloudStack 4.0 doesn't have Ubuntu 12.04, fallback to 10.04
+      unless ostype
+        ostype = compute.ostypes.find do |ostype|
+          ostype.description == "Ubuntu 10.04 (64-bit)"
+        end
+      end
+
       params = {
           :displaytext => "#{stemcell_properties["name"]} #{stemcell_properties["version"]}",
           :name => "BOSH-#{SecureRandom.hex(8)}", # less than 32 characters
