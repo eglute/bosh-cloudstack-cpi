@@ -57,7 +57,7 @@ You need some tools to generate stemcells and run the BOSH CLI commands.
 # Basic tool
 sudo apt-get install -y git
 # Ruby and bundled gems
-sudo apt-get install -y g++ make libxslt-dev libxml2-dev libsqlite3-dev zlib1g-dev libreadline-dev libssl-dev libcurl4-openssl-dev -y
+sudo apt-get install -y g++ make libxslt-dev libxml2-dev libsqlite3-dev zlib1g-dev libreadline-dev libssl-dev libcurl4-openssl-dev
 # stemcell
 sudo apt-get install -y libsqlite3-dev genisoimage libmysqlclient-dev libpq-dev debootstrap kpartx
 ```
