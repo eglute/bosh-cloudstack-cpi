@@ -34,6 +34,10 @@ See also [the issue page](https://github.com/cloudfoundry-community/bosh-cloudst
 
 You need a VM on the CloudStack domain where you install a BOSH instance using this CPI. This VM is so-called "inception" server. You will install BOSH CLI and BOSH Deployer gems on this server and run all operations with them.
 
+#### Why do I need an inception server?
+
+The CloudStack CPI creates stemcells, which are VM templates, by copying pre-composed disk images to data volumes which automatically attached by BOSH Deployer. This procedure is same as that of the AWS CPI and requires that the VM where BOSH Deployer works is running on the same domain where you want to deploy your BOSH instance.
+
 
 #### Create Security Groups or Firewall Rules
 
@@ -97,17 +101,6 @@ bundle install
 ```
 
 
-#### Generate Key Pair
-
-BOSH requires at least one key pair to connect to created VM via SSH. You must generate your own key using the CloudStack API or on your dashboard site if provided.
-
-
-##### Why do I need an inception server?
-
-The CloudStack CPI creates stemcells, which are VM templates, by copying pre-composed disk images to data volumes which automatically attached by BOSH Deployer. This procedure is same as that of the AWS CPI and requires that the VM where BOSH Deployer works is running on the same domain where you want to deploy your BOSH instance.
-
-
-
 ### Bootstrap MicroBOSH
 
 In this section, you will deploy a MicroBOSH instance as the bootstrap. Micro BOSH is an all-in-one setup for BOSH.
@@ -143,9 +136,8 @@ You will find the generated stemcell at `/mnt/stemcells/cloudstack/kvm/ubuntu/wo
 You need some settings about your MicroBOSH deployment. Create new directories (usually `deployments` and `deployments/firstbosh`) and write your manifest file using the template below. The manifest file must be saved with the file name `micro_bosh.yml` and in the child directoriy you created.
 
 ```sh
-mkdir -p ~/deplyoments/firstbosh
-cd ~/deployments/firstbosh
-vi firstbosh/micro_bosh.yml
+mkdir -p ~/deployments/firstbosh
+vi ~/deployments/firstbosh/micro_bosh.yml
 ```
 
 ```yaml
