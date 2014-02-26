@@ -1,150 +1,25 @@
-package platform
+package platform_test
 
 import (
+	. "bosh/platform"
+	fakecd "bosh/platform/cdutil/fakes"
+	boshcmd "bosh/platform/commands"
 	boshdisk "bosh/platform/disk"
 	fakedisk "bosh/platform/disk/fakes"
+	boshnet "bosh/platform/net"
 	fakestats "bosh/platform/stats/fakes"
+	boshvitals "bosh/platform/vitals"
 	boshsettings "bosh/settings"
 	boshdirs "bosh/settings/directories"
 	fakesys "bosh/system/fakes"
 	"fmt"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
-	"testing"
 	"time"
 )
-
-func TestUbuntuSetupRuntimeConfiguration(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	err := ubuntu.SetupRuntimeConfiguration()
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"bosh-agent-rc"}, deps.cmdRunner.RunCommands[0])
-}
-
-func TestUbuntuCreateUser(t *testing.T) {
-	expectedUseradd := []string{
-		"useradd",
-		"-m",
-		"-b", "/some/path/to/home",
-		"-s", "/bin/bash",
-		"-p", "bar-pwd",
-		"foo-user",
-	}
-
-	testUbuntuCreateUserWithPassword(t, "bar-pwd", expectedUseradd)
-}
-
-func TestUbuntuCreateUserWithAnEmptyPassword(t *testing.T) {
-	expectedUseradd := []string{
-		"useradd",
-		"-m",
-		"-b", "/some/path/to/home",
-		"-s", "/bin/bash",
-		"foo-user",
-	}
-
-	testUbuntuCreateUserWithPassword(t, "", expectedUseradd)
-}
-
-func testUbuntuCreateUserWithPassword(t *testing.T, password string, expectedUseradd []string) {
-	deps, ubuntu := buildUbuntu()
-
-	err := ubuntu.CreateUser("foo-user", password, "/some/path/to/home")
-	assert.NoError(t, err)
-
-	basePathStat := deps.fs.GetFileTestStat("/some/path/to/home")
-	assert.Equal(t, fakesys.FakeFileTypeDir, basePathStat.FileType)
-	assert.Equal(t, os.FileMode(0755), basePathStat.FileMode)
-
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, expectedUseradd, deps.cmdRunner.RunCommands[0])
-}
-
-func TestUbuntuAddUserToGroups(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	err := ubuntu.AddUserToGroups("foo-user", []string{"group1", "group2", "group3"})
-	assert.NoError(t, err)
-
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-
-	usermod := []string{"usermod", "-G", "group1,group2,group3", "foo-user"}
-	assert.Equal(t, usermod, deps.cmdRunner.RunCommands[0])
-}
-
-func TestUbuntuDeleteUsersWithPrefixAndRegex(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	passwdFile := fmt.Sprintf(`%sfoo:...
-%sbar:...
-foo:...
-bar:...
-foobar:...
-%sfoobar:...`,
-		boshsettings.EPHEMERAL_USER_PREFIX, boshsettings.EPHEMERAL_USER_PREFIX, boshsettings.EPHEMERAL_USER_PREFIX,
-	)
-
-	deps.fs.WriteToFile("/etc/passwd", passwdFile)
-
-	err := ubuntu.DeleteEphemeralUsersMatching("bar$")
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"userdel", "-r", "bosh_bar"}, deps.cmdRunner.RunCommands[0])
-	assert.Equal(t, []string{"userdel", "-r", "bosh_foobar"}, deps.cmdRunner.RunCommands[1])
-}
-
-func TestUbuntuSetupSsh(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	deps.fs.HomeDirHomePath = "/some/home/dir"
-
-	ubuntu.SetupSsh("some public key", "vcap")
-
-	sshDirPath := "/some/home/dir/.ssh"
-	sshDirStat := deps.fs.GetFileTestStat(sshDirPath)
-
-	assert.Equal(t, deps.fs.HomeDirUsername, "vcap")
-
-	assert.NotNil(t, sshDirStat)
-	assert.Equal(t, fakesys.FakeFileTypeDir, sshDirStat.FileType)
-	assert.Equal(t, sshDirStat.FileMode, os.FileMode(0700))
-	assert.Equal(t, sshDirStat.Username, "vcap")
-
-	authKeysStat := deps.fs.GetFileTestStat(filepath.Join(sshDirPath, "authorized_keys"))
-
-	assert.NotNil(t, authKeysStat)
-	assert.Equal(t, authKeysStat.FileType, fakesys.FakeFileTypeFile)
-	assert.Equal(t, authKeysStat.FileMode, os.FileMode(0600))
-	assert.Equal(t, authKeysStat.Username, "vcap")
-	assert.Equal(t, authKeysStat.Content, "some public key")
-}
-
-func TestUbuntuSetUserPassword(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	ubuntu.SetUserPassword("my-user", "my-encrypted-password")
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"usermod", "-p", "my-encrypted-password", "my-user"}, deps.cmdRunner.RunCommands[0])
-}
-
-func TestUbuntuSetupHostname(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	ubuntu.SetupHostname("foobar.local")
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"hostname", "foobar.local"}, deps.cmdRunner.RunCommands[0])
-
-	hostnameFileContent, err := deps.fs.ReadFile("/etc/hostname")
-	assert.NoError(t, err)
-	assert.Equal(t, "foobar.local", hostnameFileContent)
-
-	hostsFileContent, err := deps.fs.ReadFile("/etc/hosts")
-	assert.NoError(t, err)
-	assert.Equal(t, UBUNTU_EXPECTED_ETC_HOSTS, hostsFileContent)
-}
 
 const UBUNTU_EXPECTED_ETC_HOSTS = `127.0.0.1 localhost foobar.local
 
@@ -156,46 +31,6 @@ ff02::1 ip6-allnodes
 ff02::2 ip6-allrouters
 ff02::3 ip6-allhosts
 `
-
-func TestUbuntuSetupDhcp(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	testUbuntuSetupDhcp(t, deps, ubuntu)
-
-	assert.Equal(t, len(deps.cmdRunner.RunCommands), 2)
-	assert.Equal(t, deps.cmdRunner.RunCommands[0], []string{"pkill", "dhclient3"})
-	assert.Equal(t, deps.cmdRunner.RunCommands[1], []string{"/etc/init.d/networking", "restart"})
-}
-
-func TestUbuntuSetupDhcpWithPreExistingConfiguration(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	deps.fs.WriteToFile("/etc/dhcp3/dhclient.conf", UBUNTU_EXPECTED_DHCP_CONFIG)
-	testUbuntuSetupDhcp(t, deps, ubuntu)
-
-	assert.Equal(t, len(deps.cmdRunner.RunCommands), 0)
-}
-
-func testUbuntuSetupDhcp(
-	t *testing.T,
-	deps ubuntuDependencies,
-	platform ubuntu,
-) {
-	networks := boshsettings.Networks{
-		"bosh": boshsettings.Network{
-			Default: []string{"dns"},
-			Dns:     []string{"xx.xx.xx.xx", "yy.yy.yy.yy", "zz.zz.zz.zz"},
-		},
-		"vip": boshsettings.Network{
-			Default: []string{},
-			Dns:     []string{"aa.aa.aa.aa"},
-		},
-	}
-
-	platform.SetupDhcp(networks)
-
-	dhcpConfig := deps.fs.GetFileTestStat("/etc/dhcp3/dhclient.conf")
-	assert.NotNil(t, dhcpConfig)
-	assert.Equal(t, dhcpConfig.Content, UBUNTU_EXPECTED_DHCP_CONFIG)
-}
 
 const UBUNTU_EXPECTED_DHCP_CONFIG = `# Generated by bosh-agent
 
@@ -213,15 +48,20 @@ prepend domain-name-servers yy.yy.yy.yy;
 prepend domain-name-servers xx.xx.xx.xx;
 `
 
-func TestUbuntuSetupLogrotate(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+const UBUNTU_EXPECTED_NETWORK_INTERFACES = `auto lo
+iface lo inet loopback
 
-	ubuntu.SetupLogrotate("fake-group-name", "fake-base-path", "fake-size")
+auto eth0
+iface eth0 inet static
+    address 192.168.195.6
+    network 192.168.195.0
+    netmask 255.255.255.0
+    broadcast 192.168.195.255
+    gateway 192.168.195.1`
 
-	logrotateFileContent, err := deps.fs.ReadFile("/etc/logrotate.d/fake-group-name")
-	assert.NoError(t, err)
-	assert.Equal(t, UBUNTU_EXPECTED_ETC_LOGROTATE, logrotateFileContent)
-}
+const UBUNTU_EXPECTED_RESOLV_CONF = `nameserver 10.80.130.1
+nameserver 10.80.130.2
+`
 
 const UBUNTU_EXPECTED_ETC_LOGROTATE = `# Generated by bosh-agent
 
@@ -235,379 +75,598 @@ fake-base-path/data/sys/log/*.log fake-base-path/data/sys/log/*/*.log fake-base-
 }
 `
 
-func TestUbuntuSetTimeWithNtpServers(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+func init() {
+	Describe("Testing with Ginkgo", func() {
+		var (
+			collector       *fakestats.FakeStatsCollector
+			fs              *fakesys.FakeFileSystem
+			cmdRunner       *fakesys.FakeCmdRunner
+			diskManager     fakedisk.FakeDiskManager
+			dirProvider     boshdirs.DirectoriesProvider
+			diskWaitTimeout time.Duration
+			platform        Platform
+			cdutil          *fakecd.FakeCdUtil
+			compressor      boshcmd.Compressor
+			copier          boshcmd.Copier
+			vitalsService   boshvitals.Service
+		)
 
-	ubuntu.SetTimeWithNtpServers([]string{"0.north-america.pool.ntp.org", "1.north-america.pool.ntp.org"})
+		BeforeEach(func() {
+			collector = &fakestats.FakeStatsCollector{}
+			fs = &fakesys.FakeFileSystem{}
+			cmdRunner = &fakesys.FakeCmdRunner{}
+			diskManager = fakedisk.NewFakeDiskManager(cmdRunner)
+			dirProvider = boshdirs.NewDirectoriesProvider("/fake-dir")
+			diskWaitTimeout = 1 * time.Millisecond
+			cdutil = fakecd.NewFakeCdUtil()
+			compressor = boshcmd.NewTarballCompressor(cmdRunner, fs)
+			copier = boshcmd.NewCpCopier(cmdRunner, fs)
+			vitalsService = boshvitals.NewService(collector, dirProvider)
+		})
 
-	ntpConfig := deps.fs.GetFileTestStat("/fake-dir/bosh/etc/ntpserver")
-	assert.Equal(t, "0.north-america.pool.ntp.org 1.north-america.pool.ntp.org", ntpConfig.Content)
-	assert.Equal(t, fakesys.FakeFileTypeFile, ntpConfig.FileType)
+		JustBeforeEach(func() {
+			netManager := boshnet.NewUbuntuNetManager(fs, cmdRunner, 1*time.Millisecond)
 
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"ntpdate"}, deps.cmdRunner.RunCommands[0])
-}
+			platform = NewLinuxPlatform(
+				fs,
+				cmdRunner,
+				collector,
+				compressor,
+				copier,
+				dirProvider,
+				vitalsService,
+				cdutil,
+				diskManager,
+				diskWaitTimeout,
+				netManager,
+			)
+		})
 
-func TestUbuntuSetTimeWithNtpServersIsNoopWhenNoNtpServerProvided(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+		It("ubuntu setup runtime configuration", func() {
+			err := platform.SetupRuntimeConfiguration()
+			assert.NoError(GinkgoT(), err)
 
-	ubuntu.SetTimeWithNtpServers([]string{})
-	assert.Equal(t, 0, len(deps.cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"bosh-agent-rc"}, cmdRunner.RunCommands[0])
+		})
 
-	ntpConfig := deps.fs.GetFileTestStat("/fake-dir/bosh/etc/ntpserver")
-	assert.Nil(t, ntpConfig)
-}
+		It("ubuntu create user", func() {
+			expectedUseradd := []string{
+				"useradd",
+				"-m",
+				"-b", "/some/path/to/home",
+				"-s", "/bin/bash",
+				"-p", "bar-pwd",
+				"foo-user",
+			}
 
-func TestUbuntuSetupEphemeralDiskWithPath(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	fakeFormatter := deps.diskManager.FakeFormatter
-	fakePartitioner := deps.diskManager.FakePartitioner
-	fakeMounter := deps.diskManager.FakeMounter
+			password := "bar-pwd"
 
-	fakePartitioner.GetDeviceSizeInMbSizes = map[string]uint64{"/dev/xvda": uint64(1024 * 1024 * 1024)}
+			err := platform.CreateUser("foo-user", password, "/some/path/to/home")
+			assert.NoError(GinkgoT(), err)
 
-	deps.fs.WriteToFile("/dev/xvda", "")
+			basePathStat := fs.GetFileTestStat("/some/path/to/home")
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, basePathStat.FileType)
+			assert.Equal(GinkgoT(), os.FileMode(0755), basePathStat.FileMode)
 
-	err := ubuntu.SetupEphemeralDiskWithPath("/dev/sda")
-	assert.NoError(t, err)
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), expectedUseradd, cmdRunner.RunCommands[0])
+		})
 
-	dataDir := deps.fs.GetFileTestStat("/fake-dir/data")
-	assert.Equal(t, fakesys.FakeFileTypeDir, dataDir.FileType)
-	assert.Equal(t, os.FileMode(0750), dataDir.FileMode)
+		It("ubuntu create user with an empty password", func() {
+			expectedUseradd := []string{
+				"useradd",
+				"-m",
+				"-b", "/some/path/to/home",
+				"-s", "/bin/bash",
+				"foo-user",
+			}
+			password := ""
 
-	assert.Equal(t, "/dev/xvda", fakePartitioner.PartitionDevicePath)
-	assert.Equal(t, 2, len(fakePartitioner.PartitionPartitions))
+			err := platform.CreateUser("foo-user", password, "/some/path/to/home")
+			assert.NoError(GinkgoT(), err)
 
-	swapPartition := fakePartitioner.PartitionPartitions[0]
-	ext4Partition := fakePartitioner.PartitionPartitions[1]
+			basePathStat := fs.GetFileTestStat("/some/path/to/home")
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, basePathStat.FileType)
+			assert.Equal(GinkgoT(), os.FileMode(0755), basePathStat.FileMode)
 
-	assert.Equal(t, "swap", swapPartition.Type)
-	assert.Equal(t, "linux", ext4Partition.Type)
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), expectedUseradd, cmdRunner.RunCommands[0])
+		})
 
-	assert.Equal(t, 2, len(fakeFormatter.FormatPartitionPaths))
-	assert.Equal(t, "/dev/xvda1", fakeFormatter.FormatPartitionPaths[0])
-	assert.Equal(t, "/dev/xvda2", fakeFormatter.FormatPartitionPaths[1])
+		It("ubuntu add user to groups", func() {
+			err := platform.AddUserToGroups("foo-user", []string{"group1", "group2", "group3"})
+			assert.NoError(GinkgoT(), err)
 
-	assert.Equal(t, 2, len(fakeFormatter.FormatFsTypes))
-	assert.Equal(t, boshdisk.FileSystemSwap, fakeFormatter.FormatFsTypes[0])
-	assert.Equal(t, boshdisk.FileSystemExt4, fakeFormatter.FormatFsTypes[1])
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
 
-	assert.Equal(t, 1, len(fakeMounter.MountMountPoints))
-	assert.Equal(t, "/fake-dir/data", fakeMounter.MountMountPoints[0])
-	assert.Equal(t, 1, len(fakeMounter.MountPartitionPaths))
-	assert.Equal(t, "/dev/xvda2", fakeMounter.MountPartitionPaths[0])
+			usermod := []string{"usermod", "-G", "group1,group2,group3", "foo-user"}
+			assert.Equal(GinkgoT(), usermod, cmdRunner.RunCommands[0])
+		})
 
-	assert.Equal(t, 1, len(fakeMounter.SwapOnPartitionPaths))
-	assert.Equal(t, "/dev/xvda1", fakeMounter.SwapOnPartitionPaths[0])
+		It("ubuntu delete users with prefix and regex", func() {
+			passwdFile := fmt.Sprintf(`%sfoo:...
+%sbar:...
+foo:...
+bar:...
+foobar:...
+%sfoobar:...`,
+				boshsettings.EPHEMERAL_USER_PREFIX, boshsettings.EPHEMERAL_USER_PREFIX, boshsettings.EPHEMERAL_USER_PREFIX,
+			)
 
-	sysLogStats := deps.fs.GetFileTestStat("/fake-dir/data/sys/log")
-	assert.NotNil(t, sysLogStats)
-	assert.Equal(t, fakesys.FakeFileTypeDir, sysLogStats.FileType)
-	assert.Equal(t, os.FileMode(0750), sysLogStats.FileMode)
+			fs.WriteToFile("/etc/passwd", passwdFile)
 
-	sysRunStats := deps.fs.GetFileTestStat("/fake-dir/data/sys/run")
-	assert.NotNil(t, sysRunStats)
-	assert.Equal(t, fakesys.FakeFileTypeDir, sysRunStats.FileType)
-	assert.Equal(t, os.FileMode(0750), sysRunStats.FileMode)
-}
+			err := platform.DeleteEphemeralUsersMatching("bar$")
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), 2, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"userdel", "-r", "bosh_bar"}, cmdRunner.RunCommands[0])
+			assert.Equal(GinkgoT(), []string{"userdel", "-r", "bosh_foobar"}, cmdRunner.RunCommands[1])
+		})
 
-func TestSetupTmpDir(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+		It("ubuntu setup ssh", func() {
+			fs.HomeDirHomePath = "/some/home/dir"
 
-	err := ubuntu.SetupTmpDir()
-	assert.NoError(t, err)
+			platform.SetupSsh("some public key", "vcap")
 
-	assert.Equal(t, 2, len(deps.cmdRunner.RunCommands))
+			sshDirPath := "/some/home/dir/.ssh"
+			sshDirStat := fs.GetFileTestStat(sshDirPath)
 
-	assert.Equal(t, []string{"chown", "root:vcap", "/tmp"}, deps.cmdRunner.RunCommands[0])
-	assert.Equal(t, []string{"chmod", "0770", "/tmp"}, deps.cmdRunner.RunCommands[1])
-}
+			assert.Equal(GinkgoT(), fs.HomeDirUsername, "vcap")
 
-func TestUbuntuMountPersistentDisk(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	fakeFormatter := deps.diskManager.FakeFormatter
-	fakePartitioner := deps.diskManager.FakePartitioner
-	fakeMounter := deps.diskManager.FakeMounter
+			assert.NotNil(GinkgoT(), sshDirStat)
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, sshDirStat.FileType)
+			assert.Equal(GinkgoT(), sshDirStat.FileMode, os.FileMode(0700))
+			assert.Equal(GinkgoT(), sshDirStat.Username, "vcap")
 
-	deps.fs.WriteToFile("/dev/vdf", "")
+			authKeysStat := fs.GetFileTestStat(filepath.Join(sshDirPath, "authorized_keys"))
 
-	err := ubuntu.MountPersistentDisk("/dev/sdf", "/mnt/point")
-	assert.NoError(t, err)
+			assert.NotNil(GinkgoT(), authKeysStat)
+			assert.Equal(GinkgoT(), authKeysStat.FileType, fakesys.FakeFileTypeFile)
+			assert.Equal(GinkgoT(), authKeysStat.FileMode, os.FileMode(0600))
+			assert.Equal(GinkgoT(), authKeysStat.Username, "vcap")
+			assert.Equal(GinkgoT(), authKeysStat.Content, "some public key")
+		})
 
-	mountPoint := deps.fs.GetFileTestStat("/mnt/point")
-	assert.Equal(t, fakesys.FakeFileTypeDir, mountPoint.FileType)
-	assert.Equal(t, os.FileMode(0700), mountPoint.FileMode)
+		It("ubuntu set user password", func() {
+			platform.SetUserPassword("my-user", "my-encrypted-password")
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"usermod", "-p", "my-encrypted-password", "my-user"}, cmdRunner.RunCommands[0])
+		})
 
-	partition := fakePartitioner.PartitionPartitions[0]
-	assert.Equal(t, "/dev/vdf", fakePartitioner.PartitionDevicePath)
-	assert.Equal(t, 1, len(fakePartitioner.PartitionPartitions))
-	assert.Equal(t, "linux", partition.Type)
+		It("ubuntu setup hostname", func() {
+			platform.SetupHostname("foobar.local")
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"hostname", "foobar.local"}, cmdRunner.RunCommands[0])
 
-	assert.Equal(t, 1, len(fakeFormatter.FormatPartitionPaths))
-	assert.Equal(t, "/dev/vdf1", fakeFormatter.FormatPartitionPaths[0])
+			hostnameFileContent, err := fs.ReadFile("/etc/hostname")
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), "foobar.local", hostnameFileContent)
 
-	assert.Equal(t, 1, len(fakeFormatter.FormatFsTypes))
-	assert.Equal(t, boshdisk.FileSystemExt4, fakeFormatter.FormatFsTypes[0])
+			hostsFileContent, err := fs.ReadFile("/etc/hosts")
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), UBUNTU_EXPECTED_ETC_HOSTS, hostsFileContent)
+		})
 
-	assert.Equal(t, 1, len(fakeMounter.MountMountPoints))
-	assert.Equal(t, "/mnt/point", fakeMounter.MountMountPoints[0])
-	assert.Equal(t, 1, len(fakeMounter.MountPartitionPaths))
-	assert.Equal(t, "/dev/vdf1", fakeMounter.MountPartitionPaths[0])
-}
+		It("ubuntu setup dhcp", func() {
+			networks := boshsettings.Networks{
+				"bosh": boshsettings.Network{
+					Default: []string{"dns"},
+					Dns:     []string{"xx.xx.xx.xx", "yy.yy.yy.yy", "zz.zz.zz.zz"},
+				},
+				"vip": boshsettings.Network{
+					Default: []string{},
+					Dns:     []string{"aa.aa.aa.aa"},
+				},
+			}
 
-func TestUbuntuUnmountPersistentDiskWhenNotMounted(t *testing.T) {
-	testUbuntuUnmountPersistentDisk(t, false)
-}
+			platform.SetupDhcp(networks)
 
-func TestUbuntuUnmountPersistentDiskWhenAlreadyMounted(t *testing.T) {
-	testUbuntuUnmountPersistentDisk(t, true)
-}
+			dhcpConfig := fs.GetFileTestStat("/etc/dhcp3/dhclient.conf")
+			assert.NotNil(GinkgoT(), dhcpConfig)
+			assert.Equal(GinkgoT(), dhcpConfig.Content, UBUNTU_EXPECTED_DHCP_CONFIG)
 
-func testUbuntuUnmountPersistentDisk(t *testing.T, isMounted bool) {
-	deps, ubuntu := buildUbuntu()
-	fakeMounter := deps.diskManager.FakeMounter
-	fakeMounter.UnmountDidUnmount = !isMounted
+			assert.Equal(GinkgoT(), len(cmdRunner.RunCommands), 2)
+			assert.Equal(GinkgoT(), cmdRunner.RunCommands[0], []string{"pkill", "dhclient3"})
+			assert.Equal(GinkgoT(), cmdRunner.RunCommands[1], []string{"/etc/init.d/networking", "restart"})
+		})
 
-	deps.fs.WriteToFile("/dev/vdx", "")
+		It("ubuntu setup dhcp with pre existing configuration", func() {
+			fs.WriteToFile("/etc/dhcp3/dhclient.conf", UBUNTU_EXPECTED_DHCP_CONFIG)
+			networks := boshsettings.Networks{
+				"bosh": boshsettings.Network{
+					Default: []string{"dns"},
+					Dns:     []string{"xx.xx.xx.xx", "yy.yy.yy.yy", "zz.zz.zz.zz"},
+				},
+				"vip": boshsettings.Network{
+					Default: []string{},
+					Dns:     []string{"aa.aa.aa.aa"},
+				},
+			}
 
-	didUnmount, err := ubuntu.UnmountPersistentDisk("/dev/sdx")
-	assert.NoError(t, err)
-	assert.Equal(t, didUnmount, !isMounted)
-	assert.Equal(t, "/dev/vdx1", fakeMounter.UnmountPartitionPath)
-}
+			platform.SetupDhcp(networks)
 
-func TestUbuntuGetFileContentsFromCDROM(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+			dhcpConfig := fs.GetFileTestStat("/etc/dhcp3/dhclient.conf")
+			assert.NotNil(GinkgoT(), dhcpConfig)
+			assert.Equal(GinkgoT(), dhcpConfig.Content, UBUNTU_EXPECTED_DHCP_CONFIG)
 
-	deps.fs.WriteToFile("/dev/bosh-cdrom", "")
-	settingsPath := filepath.Join(ubuntu.dirProvider.SettingsDir(), "env")
-	deps.fs.WriteToFile(settingsPath, "some stuff")
-	deps.fs.WriteToFile("/proc/sys/dev/cdrom/info", "CD-ROM information, Id: cdrom.c 3.20 2003/12/17\n\ndrive name:		sr0\ndrive speed:		32\n")
+			assert.Equal(GinkgoT(), len(cmdRunner.RunCommands), 0)
+		})
 
-	contents, err := ubuntu.GetFileContentsFromCDROM("env")
-	assert.NoError(t, err)
+		It("ubuntu setup manual networking", func() {
+			networks := boshsettings.Networks{
+				"bosh": boshsettings.Network{
+					Default: []string{"dns", "gateway"},
+					Ip:      "192.168.195.6",
+					Netmask: "255.255.255.0",
+					Gateway: "192.168.195.1",
+					Mac:     "22:00:0a:1f:ac:2a",
+					Dns:     []string{"10.80.130.2", "10.80.130.1"},
+				},
+			}
+			fs.WriteToFile("/sys/class/net/eth0", "")
+			fs.WriteToFile("/sys/class/net/eth0/address", "22:00:0a:1f:ac:2a\n")
+			fs.GlobPaths = []string{"/sys/class/net/eth0"}
 
-	assert.Equal(t, 3, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"mount", "/dev/sr0", "/fake-dir/bosh/settings"}, deps.cmdRunner.RunCommands[0])
-	assert.Equal(t, []string{"umount", "/fake-dir/bosh/settings"}, deps.cmdRunner.RunCommands[1])
-	assert.Equal(t, []string{"eject", "/dev/sr0"}, deps.cmdRunner.RunCommands[2])
+			platform.SetupManualNetworking(networks)
 
-	assert.Equal(t, contents, []byte("some stuff"))
-}
+			networkConfig := fs.GetFileTestStat("/etc/network/interfaces")
+			assert.NotNil(GinkgoT(), networkConfig)
+			assert.Equal(GinkgoT(), networkConfig.Content, UBUNTU_EXPECTED_NETWORK_INTERFACES)
 
-func TestUbuntuGetFileContentsFromCDROMWhenCDROMFailedToLoad(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+			resolvConf := fs.GetFileTestStat("/etc/resolv.conf")
+			assert.NotNil(GinkgoT(), resolvConf)
+			assert.Equal(GinkgoT(), resolvConf.Content, UBUNTU_EXPECTED_RESOLV_CONF)
 
-	deps.fs.WriteToFile("/dev/sr0/env", "some stuff")
-	deps.fs.WriteToFile("/proc/sys/dev/cdrom/info", "CD-ROM information, Id: cdrom.c 3.20 2003/12/17\n\ndrive name:		sr0\ndrive speed:		32\n")
-	ubuntu.cdromWaitInterval = 1 * time.Millisecond
+			time.Sleep(100 * time.Millisecond)
 
-	_, err := ubuntu.GetFileContentsFromCDROM("env")
-	assert.Error(t, err)
-}
+			assert.Equal(GinkgoT(), len(cmdRunner.RunCommands), 8)
+			assert.Equal(GinkgoT(), cmdRunner.RunCommands[0], []string{"service", "network-interface", "stop", "INTERFACE=eth0"})
+			assert.Equal(GinkgoT(), cmdRunner.RunCommands[1], []string{"service", "network-interface", "start", "INTERFACE=eth0"})
+			assert.Equal(GinkgoT(), cmdRunner.RunCommands[2], []string{"arping", "-c", "1", "-U", "-I", "eth0", "192.168.195.6"})
+			assert.Equal(GinkgoT(), cmdRunner.RunCommands[7], []string{"arping", "-c", "1", "-U", "-I", "eth0", "192.168.195.6"})
+		})
 
-func TestUbuntuGetFileContentsFromCDROMRetriesCDROMReading(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+		It("ubuntu setup logrotate", func() {
+			platform.SetupLogrotate("fake-group-name", "fake-base-path", "fake-size")
 
-	settingsPath := filepath.Join(ubuntu.dirProvider.SettingsDir(), "env")
-	deps.fs.WriteToFile(settingsPath, "some stuff")
-	deps.fs.WriteToFile("/proc/sys/dev/cdrom/info", "CD-ROM information, Id: cdrom.c 3.20 2003/12/17\n\ndrive name:		sr0\ndrive speed:		32\n")
+			logrotateFileContent, err := fs.ReadFile("/etc/logrotate.d/fake-group-name")
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), UBUNTU_EXPECTED_ETC_LOGROTATE, logrotateFileContent)
+		})
 
-	go func() {
-		_, err := ubuntu.GetFileContentsFromCDROM("env")
-		assert.NoError(t, err)
-	}()
+		It("ubuntu set time with ntp servers", func() {
+			platform.SetTimeWithNtpServers([]string{"0.north-america.pool.ntp.org", "1.north-america.pool.ntp.org"})
 
-	time.Sleep(500 * time.Millisecond)
-	deps.fs.WriteToFile("/dev/bosh-cdrom", "")
-}
+			ntpConfig := fs.GetFileTestStat("/fake-dir/bosh/etc/ntpserver")
+			assert.Equal(GinkgoT(), "0.north-america.pool.ntp.org 1.north-america.pool.ntp.org", ntpConfig.Content)
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeFile, ntpConfig.FileType)
 
-func TestUbuntuGetRealDevicePathWithMultiplePossibleDevices(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"ntpdate"}, cmdRunner.RunCommands[0])
+		})
 
-	deps.fs.WriteToFile("/dev/xvda", "")
-	deps.fs.WriteToFile("/dev/vda", "")
+		It("ubuntu set time with ntp servers is noop when no ntp server provided", func() {
+			platform.SetTimeWithNtpServers([]string{})
+			assert.Equal(GinkgoT(), 0, len(cmdRunner.RunCommands))
 
-	realPath, err := ubuntu.getRealDevicePath("/dev/sda")
-	assert.NoError(t, err)
-	assert.Equal(t, "/dev/xvda", realPath)
-}
+			ntpConfig := fs.GetFileTestStat("/fake-dir/bosh/etc/ntpserver")
+			assert.Nil(GinkgoT(), ntpConfig)
+		})
 
-func TestUbuntuGetRealDevicePathWithDelayWithinTimeout(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
+		It("ubuntu setup ephemeral disk with path", func() {
+			fakeFormatter := diskManager.FakeFormatter
+			fakePartitioner := diskManager.FakePartitioner
+			fakeMounter := diskManager.FakeMounter
 
-	time.AfterFunc(time.Second, func() {
-		deps.fs.WriteToFile("/dev/xvda", "")
+			fakePartitioner.GetDeviceSizeInMbSizes = map[string]uint64{"/dev/xvda": uint64(1024 * 1024 * 1024)}
+
+			fs.WriteToFile("/dev/xvda", "")
+
+			err := platform.SetupEphemeralDiskWithPath("/dev/xvda")
+			assert.NoError(GinkgoT(), err)
+
+			dataDir := fs.GetFileTestStat("/fake-dir/data")
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, dataDir.FileType)
+			assert.Equal(GinkgoT(), os.FileMode(0750), dataDir.FileMode)
+
+			assert.Equal(GinkgoT(), "/dev/xvda", fakePartitioner.PartitionDevicePath)
+			assert.Equal(GinkgoT(), 2, len(fakePartitioner.PartitionPartitions))
+
+			swapPartition := fakePartitioner.PartitionPartitions[0]
+			ext4Partition := fakePartitioner.PartitionPartitions[1]
+
+			assert.Equal(GinkgoT(), "swap", swapPartition.Type)
+			assert.Equal(GinkgoT(), "linux", ext4Partition.Type)
+
+			assert.Equal(GinkgoT(), 2, len(fakeFormatter.FormatPartitionPaths))
+			assert.Equal(GinkgoT(), "/dev/xvda1", fakeFormatter.FormatPartitionPaths[0])
+			assert.Equal(GinkgoT(), "/dev/xvda2", fakeFormatter.FormatPartitionPaths[1])
+
+			assert.Equal(GinkgoT(), 2, len(fakeFormatter.FormatFsTypes))
+			assert.Equal(GinkgoT(), boshdisk.FileSystemSwap, fakeFormatter.FormatFsTypes[0])
+			assert.Equal(GinkgoT(), boshdisk.FileSystemExt4, fakeFormatter.FormatFsTypes[1])
+
+			assert.Equal(GinkgoT(), 1, len(fakeMounter.MountMountPoints))
+			assert.Equal(GinkgoT(), "/fake-dir/data", fakeMounter.MountMountPoints[0])
+			assert.Equal(GinkgoT(), 1, len(fakeMounter.MountPartitionPaths))
+			assert.Equal(GinkgoT(), "/dev/xvda2", fakeMounter.MountPartitionPaths[0])
+
+			assert.Equal(GinkgoT(), 1, len(fakeMounter.SwapOnPartitionPaths))
+			assert.Equal(GinkgoT(), "/dev/xvda1", fakeMounter.SwapOnPartitionPaths[0])
+
+			sysLogStats := fs.GetFileTestStat("/fake-dir/data/sys/log")
+			assert.NotNil(GinkgoT(), sysLogStats)
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, sysLogStats.FileType)
+			assert.Equal(GinkgoT(), os.FileMode(0750), sysLogStats.FileMode)
+			assert.Equal(GinkgoT(), []string{"chown", "root:vcap", "/fake-dir/data/sys"}, cmdRunner.RunCommands[0])
+			assert.Equal(GinkgoT(), []string{"chown", "root:vcap", "/fake-dir/data/sys/log"}, cmdRunner.RunCommands[1])
+
+			sysRunStats := fs.GetFileTestStat("/fake-dir/data/sys/run")
+			assert.NotNil(GinkgoT(), sysRunStats)
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, sysRunStats.FileType)
+			assert.Equal(GinkgoT(), os.FileMode(0750), sysRunStats.FileMode)
+			assert.Equal(GinkgoT(), []string{"chown", "root:vcap", "/fake-dir/data/sys/run"}, cmdRunner.RunCommands[2])
+		})
+
+		It("setup tmp dir", func() {
+			err := platform.SetupTmpDir()
+			assert.NoError(GinkgoT(), err)
+
+			assert.Equal(GinkgoT(), 2, len(cmdRunner.RunCommands))
+
+			assert.Equal(GinkgoT(), []string{"chown", "root:vcap", "/tmp"}, cmdRunner.RunCommands[0])
+			assert.Equal(GinkgoT(), []string{"chmod", "0770", "/tmp"}, cmdRunner.RunCommands[1])
+		})
+
+		It("ubuntu mount persistent disk", func() {
+			fakeFormatter := diskManager.FakeFormatter
+			fakePartitioner := diskManager.FakePartitioner
+			fakeMounter := diskManager.FakeMounter
+
+			fs.WriteToFile("/dev/vdf", "")
+
+			err := platform.MountPersistentDisk("/dev/sdf", "/mnt/point")
+			assert.NoError(GinkgoT(), err)
+
+			mountPoint := fs.GetFileTestStat("/mnt/point")
+			assert.Equal(GinkgoT(), fakesys.FakeFileTypeDir, mountPoint.FileType)
+			assert.Equal(GinkgoT(), os.FileMode(0700), mountPoint.FileMode)
+
+			partition := fakePartitioner.PartitionPartitions[0]
+			assert.Equal(GinkgoT(), "/dev/vdf", fakePartitioner.PartitionDevicePath)
+			assert.Equal(GinkgoT(), 1, len(fakePartitioner.PartitionPartitions))
+			assert.Equal(GinkgoT(), "linux", partition.Type)
+
+			assert.Equal(GinkgoT(), 1, len(fakeFormatter.FormatPartitionPaths))
+			assert.Equal(GinkgoT(), "/dev/vdf1", fakeFormatter.FormatPartitionPaths[0])
+
+			assert.Equal(GinkgoT(), 1, len(fakeFormatter.FormatFsTypes))
+			assert.Equal(GinkgoT(), boshdisk.FileSystemExt4, fakeFormatter.FormatFsTypes[0])
+
+			assert.Equal(GinkgoT(), 1, len(fakeMounter.MountMountPoints))
+			assert.Equal(GinkgoT(), "/mnt/point", fakeMounter.MountMountPoints[0])
+			assert.Equal(GinkgoT(), 1, len(fakeMounter.MountPartitionPaths))
+			assert.Equal(GinkgoT(), "/dev/vdf1", fakeMounter.MountPartitionPaths[0])
+		})
+		Context("when not mounted", func() {
+			It("does not unmount persistent disk", func() {
+				fakeMounter := diskManager.FakeMounter
+				fakeMounter.UnmountDidUnmount = false
+
+				fs.WriteToFile("/dev/vdx", "")
+
+				didUnmount, err := platform.UnmountPersistentDisk("/dev/sdx")
+				assert.NoError(GinkgoT(), err)
+				assert.Equal(GinkgoT(), didUnmount, false)
+				assert.Equal(GinkgoT(), "/dev/vdx1", fakeMounter.UnmountPartitionPath)
+			})
+		})
+
+		Context("when already mounted", func() {
+			It("unmounts persistent disk", func() {
+				fakeMounter := diskManager.FakeMounter
+				fakeMounter.UnmountDidUnmount = true
+
+				fs.WriteToFile("/dev/vdx", "")
+
+				didUnmount, err := platform.UnmountPersistentDisk("/dev/sdx")
+				assert.NoError(GinkgoT(), err)
+				assert.Equal(GinkgoT(), didUnmount, true)
+				assert.Equal(GinkgoT(), "/dev/vdx1", fakeMounter.UnmountPartitionPath)
+			})
+		})
+
+		It("ubuntu normalize disk path", func() {
+			fs.WriteToFile("/dev/xvda", "")
+			path, found := platform.NormalizeDiskPath("/dev/sda")
+
+			assert.Equal(GinkgoT(), path, "/dev/xvda")
+			assert.True(GinkgoT(), found)
+
+			fs.RemoveAll("/dev/xvda")
+			fs.WriteToFile("/dev/vda", "")
+			path, found = platform.NormalizeDiskPath("/dev/sda")
+
+			assert.Equal(GinkgoT(), path, "/dev/vda")
+			assert.True(GinkgoT(), found)
+
+			fs.RemoveAll("/dev/vda")
+			fs.WriteToFile("/dev/sda", "")
+			path, found = platform.NormalizeDiskPath("/dev/sda")
+
+			assert.Equal(GinkgoT(), path, "/dev/sda")
+			assert.True(GinkgoT(), found)
+		})
+
+		Describe("GetFileContentsFromCDROM", func() {
+			It("delegates to cdutil", func() {
+				cdutil.GetFileContentsContents = []byte("fake-contents")
+				filename := "fake-env"
+				contents, err := platform.GetFileContentsFromCDROM(filename)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(cdutil.GetFileContentsFilename).To(Equal(filename))
+				Expect(contents).To(Equal(cdutil.GetFileContentsContents))
+			})
+		})
+
+		It("ubuntu get real device path with multiple possible devices", func() {
+			fs.WriteToFile("/dev/xvda", "")
+			fs.WriteToFile("/dev/vda", "")
+
+			realPath, found := platform.NormalizeDiskPath("/dev/sda")
+			assert.True(GinkgoT(), found)
+			assert.Equal(GinkgoT(), "/dev/xvda", realPath)
+		})
+
+		Context("within timeout", func() {
+			BeforeEach(func() {
+				diskWaitTimeout = 1 * time.Second
+			})
+
+			It("ubuntu get real device path with delay", func() {
+				time.AfterFunc(time.Second, func() {
+					fs.WriteToFile("/dev/xvda", "")
+				})
+
+				realPath, found := platform.NormalizeDiskPath("/dev/sda")
+				assert.True(GinkgoT(), found)
+				assert.Equal(GinkgoT(), "/dev/xvda", realPath)
+			})
+		})
+
+		It("ubuntu get real device path with delay beyond timeout", func() {
+			time.AfterFunc(2*time.Second, func() {
+				fs.WriteToFile("/dev/xvda", "")
+			})
+
+			_, found := platform.NormalizeDiskPath("/dev/sda")
+			assert.False(GinkgoT(), found)
+		})
+
+		It("ubuntu calculate ephemeral disk partition sizes when disk is bigger than twice the memory", func() {
+			totalMemInMb := uint64(1024)
+
+			diskSizeInMb := totalMemInMb*2 + 64
+			expectedSwap := totalMemInMb
+
+			collector.MemStats.Total = totalMemInMb * uint64(1024*1024)
+
+			fakePartitioner := diskManager.FakePartitioner
+			fakePartitioner.GetDeviceSizeInMbSizes = map[string]uint64{
+				"/dev/hda": diskSizeInMb,
+			}
+
+			err := platform.SetupEphemeralDiskWithPath("/dev/hda")
+
+			assert.NoError(GinkgoT(), err)
+			expectedPartitions := []boshdisk.Partition{
+				{SizeInMb: expectedSwap, Type: boshdisk.PartitionTypeSwap},
+				{SizeInMb: diskSizeInMb - expectedSwap, Type: boshdisk.PartitionTypeLinux},
+			}
+			assert.Equal(GinkgoT(), fakePartitioner.PartitionPartitions, expectedPartitions)
+		})
+
+		It("ubuntu calculate ephemeral disk partition sizes when disk twice the memory or smaller", func() {
+			totalMemInMb := uint64(1024)
+
+			diskSizeInMb := totalMemInMb*2 - 64
+			expectedSwap := diskSizeInMb / 2
+
+			collector.MemStats.Total = totalMemInMb * uint64(1024*1024)
+
+			fakePartitioner := diskManager.FakePartitioner
+			fakePartitioner.GetDeviceSizeInMbSizes = map[string]uint64{
+				"/dev/hda": diskSizeInMb,
+			}
+
+			err := platform.SetupEphemeralDiskWithPath("/dev/hda")
+
+			assert.NoError(GinkgoT(), err)
+			expectedPartitions := []boshdisk.Partition{
+				{SizeInMb: expectedSwap, Type: boshdisk.PartitionTypeSwap},
+				{SizeInMb: diskSizeInMb - expectedSwap, Type: boshdisk.PartitionTypeLinux},
+			}
+			assert.Equal(GinkgoT(), fakePartitioner.PartitionPartitions, expectedPartitions)
+		})
+
+		It("ubuntu migrate persistent disk", func() {
+			fakeMounter := diskManager.FakeMounter
+
+			platform.MigratePersistentDisk("/from/path", "/to/path")
+
+			assert.Equal(GinkgoT(), fakeMounter.RemountAsReadonlyPath, "/from/path")
+
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"sh", "-c", "(tar -C /from/path -cf - .) | (tar -C /to/path -xpf -)"}, cmdRunner.RunCommands[0])
+
+			assert.Equal(GinkgoT(), fakeMounter.UnmountPartitionPath, "/from/path")
+			assert.Equal(GinkgoT(), fakeMounter.RemountFromMountPoint, "/to/path")
+			assert.Equal(GinkgoT(), fakeMounter.RemountToMountPoint, "/from/path")
+		})
+
+		It("ubuntu is device path mounted", func() {
+			fs.WriteToFile("/dev/xvda", "")
+			fakeMounter := diskManager.FakeMounter
+			fakeMounter.IsMountedResult = true
+
+			result, err := platform.IsDevicePathMounted("/dev/sda")
+			assert.NoError(GinkgoT(), err)
+			assert.True(GinkgoT(), result)
+			assert.Equal(GinkgoT(), fakeMounter.IsMountedDevicePathOrMountPoint, "/dev/xvda1")
+		})
+
+		It("ubuntu start monit", func() {
+			err := platform.StartMonit()
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), 1, len(cmdRunner.RunCommands))
+			assert.Equal(GinkgoT(), []string{"sv", "up", "monit"}, cmdRunner.RunCommands[0])
+		})
+
+		It("ubuntu setup monit user if file does not exist", func() {
+			err := platform.SetupMonitUser()
+			assert.NoError(GinkgoT(), err)
+
+			monitUserFileStats := fs.GetFileTestStat("/fake-dir/monit/monit.user")
+			assert.NotNil(GinkgoT(), monitUserFileStats)
+			assert.Equal(GinkgoT(), "vcap:random-password", monitUserFileStats.Content)
+		})
+
+		It("ubuntu setup monit user if file does exist", func() {
+			fs.WriteToFile("/fake-dir/monit/monit.user", "vcap:other-random-password")
+
+			err := platform.SetupMonitUser()
+			assert.NoError(GinkgoT(), err)
+
+			monitUserFileStats := fs.GetFileTestStat("/fake-dir/monit/monit.user")
+			assert.NotNil(GinkgoT(), monitUserFileStats)
+			assert.Equal(GinkgoT(), "vcap:other-random-password", monitUserFileStats.Content)
+		})
+
+		It("ubuntu get monit credentials reads monit file from disk", func() {
+			fs.WriteToFile("/fake-dir/monit/monit.user", "fake-user:fake-random-password")
+
+			username, password, err := platform.GetMonitCredentials()
+			assert.NoError(GinkgoT(), err)
+
+			assert.Equal(GinkgoT(), "fake-user", username)
+			assert.Equal(GinkgoT(), "fake-random-password", password)
+		})
+
+		It("ubuntu get monit credentials errs when invalid file format", func() {
+			fs.WriteToFile("/fake-dir/monit/monit.user", "fake-user")
+
+			_, _, err := platform.GetMonitCredentials()
+			assert.Error(GinkgoT(), err)
+		})
+
+		It("ubuntu get monit credentials leaves colons in password intact", func() {
+			fs.WriteToFile("/fake-dir/monit/monit.user", "fake-user:fake:random:password")
+
+			username, password, err := platform.GetMonitCredentials()
+			assert.NoError(GinkgoT(), err)
+
+			assert.Equal(GinkgoT(), "fake-user", username)
+			assert.Equal(GinkgoT(), "fake:random:password", password)
+		})
 	})
-
-	realPath, err := ubuntu.getRealDevicePath("/dev/sda")
-	assert.NoError(t, err)
-	assert.Equal(t, "/dev/xvda", realPath)
-}
-
-func TestUbuntuGetRealDevicePathWithDelayBeyondTimeout(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	ubuntu.diskWaitTimeout = time.Second
-
-	time.AfterFunc(2*time.Second, func() {
-		deps.fs.WriteToFile("/dev/xvda", "")
-	})
-
-	_, err := ubuntu.getRealDevicePath("/dev/sda")
-	assert.Error(t, err)
-}
-
-func TestUbuntuCalculateEphemeralDiskPartitionSizesWhenDiskIsBiggerThanTwiceTheMemory(t *testing.T) {
-	totalMemInMb := uint64(1024)
-
-	diskSizeInMb := totalMemInMb*2 + 64
-	expectedSwap := totalMemInMb
-	testUbuntuCalculateEphemeralDiskPartitionSizes(t, totalMemInMb, diskSizeInMb, expectedSwap)
-}
-
-func TestUbuntuCalculateEphemeralDiskPartitionSizesWhenDiskTwiceTheMemoryOrSmaller(t *testing.T) {
-	totalMemInMb := uint64(1024)
-
-	diskSizeInMb := totalMemInMb*2 - 64
-	expectedSwap := diskSizeInMb / 2
-	testUbuntuCalculateEphemeralDiskPartitionSizes(t, totalMemInMb, diskSizeInMb, expectedSwap)
-}
-
-func testUbuntuCalculateEphemeralDiskPartitionSizes(t *testing.T, totalMemInMb, diskSizeInMb, expectedSwap uint64) {
-	deps, ubuntu := buildUbuntu()
-	deps.collector.MemStats.Total = totalMemInMb * uint64(1024*1024)
-
-	fakePartitioner := deps.diskManager.FakePartitioner
-	fakePartitioner.GetDeviceSizeInMbSizes = map[string]uint64{
-		"/dev/hda": diskSizeInMb,
-	}
-
-	swapSize, linuxSize, err := ubuntu.calculateEphemeralDiskPartitionSizes("/dev/hda")
-
-	assert.NoError(t, err)
-	assert.Equal(t, expectedSwap, swapSize)
-	assert.Equal(t, diskSizeInMb-expectedSwap, linuxSize)
-}
-
-func TestUbuntuMigratePersistentDisk(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	fakeMounter := deps.diskManager.FakeMounter
-
-	ubuntu.MigratePersistentDisk("/from/path", "/to/path")
-
-	assert.Equal(t, fakeMounter.RemountAsReadonlyPath, "/from/path")
-
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"sh", "-c", "(tar -C /from/path -cf - .) | (tar -C /to/path -xpf -)"}, deps.cmdRunner.RunCommands[0])
-
-	assert.Equal(t, fakeMounter.UnmountPartitionPath, "/from/path")
-	assert.Equal(t, fakeMounter.RemountFromMountPoint, "/to/path")
-	assert.Equal(t, fakeMounter.RemountToMountPoint, "/from/path")
-}
-
-func TestUbuntuIsDevicePathMounted(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	deps.fs.WriteToFile("/dev/xvda", "")
-	fakeMounter := deps.diskManager.FakeMounter
-	fakeMounter.IsMountedResult = true
-
-	result, err := ubuntu.IsDevicePathMounted("/dev/sda")
-	assert.NoError(t, err)
-	assert.True(t, result)
-	assert.Equal(t, fakeMounter.IsMountedDevicePathOrMountPoint, "/dev/xvda1")
-}
-
-func TestUbuntuStartMonit(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	err := ubuntu.StartMonit()
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(deps.cmdRunner.RunCommands))
-	assert.Equal(t, []string{"sv", "up", "monit"}, deps.cmdRunner.RunCommands[0])
-}
-
-func TestUbuntuSetupMonitUserIfFileDoesNotExist(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	err := ubuntu.SetupMonitUser()
-	assert.NoError(t, err)
-
-	monitUserFileStats := deps.fs.GetFileTestStat("/fake-dir/monit/monit.user")
-	assert.NotNil(t, monitUserFileStats)
-	assert.Equal(t, "vcap:random-password", monitUserFileStats.Content)
-}
-
-func TestUbuntuSetupMonitUserIfFileDoesExist(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	deps.fs.WriteToFile("/fake-dir/monit/monit.user", "vcap:other-random-password")
-
-	err := ubuntu.SetupMonitUser()
-	assert.NoError(t, err)
-
-	monitUserFileStats := deps.fs.GetFileTestStat("/fake-dir/monit/monit.user")
-	assert.NotNil(t, monitUserFileStats)
-	assert.Equal(t, "vcap:other-random-password", monitUserFileStats.Content)
-}
-
-func TestUbuntuGetMonitCredentialsReadsMonitFileFromDisk(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	deps.fs.WriteToFile("/fake-dir/monit/monit.user", "fake-user:fake-random-password")
-
-	username, password, err := ubuntu.GetMonitCredentials()
-	assert.NoError(t, err)
-
-	assert.Equal(t, "fake-user", username)
-	assert.Equal(t, "fake-random-password", password)
-}
-
-func TestUbuntuGetMonitCredentialsErrsWhenInvalidFileFormat(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-
-	deps.fs.WriteToFile("/fake-dir/monit/monit.user", "fake-user")
-
-	_, _, err := ubuntu.GetMonitCredentials()
-	assert.Error(t, err)
-}
-
-func TestUbuntuGetMonitCredentialsLeavesColonsInPasswordIntact(t *testing.T) {
-	deps, ubuntu := buildUbuntu()
-	deps.fs.WriteToFile("/fake-dir/monit/monit.user", "fake-user:fake:random:password")
-
-	username, password, err := ubuntu.GetMonitCredentials()
-	assert.NoError(t, err)
-
-	assert.Equal(t, "fake-user", username)
-	assert.Equal(t, "fake:random:password", password)
-}
-
-type ubuntuDependencies struct {
-	collector   *fakestats.FakeStatsCollector
-	fs          *fakesys.FakeFileSystem
-	cmdRunner   *fakesys.FakeCmdRunner
-	diskManager fakedisk.FakeDiskManager
-	dirProvider boshdirs.DirectoriesProvider
-}
-
-func buildUbuntu() (
-	deps ubuntuDependencies,
-	platform ubuntu,
-) {
-	deps.collector = &fakestats.FakeStatsCollector{}
-	deps.fs = &fakesys.FakeFileSystem{}
-	deps.cmdRunner = &fakesys.FakeCmdRunner{}
-	deps.diskManager = fakedisk.NewFakeDiskManager(deps.cmdRunner)
-	deps.dirProvider = boshdirs.NewDirectoriesProvider("/fake-dir")
-
-	platform = newUbuntuPlatform(
-		deps.collector,
-		deps.fs,
-		deps.cmdRunner,
-		deps.diskManager,
-		deps.dirProvider,
-	)
-	return
 }

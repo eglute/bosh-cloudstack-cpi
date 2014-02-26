@@ -1,16 +1,22 @@
-package handler
+package handler_test
 
 import (
 	boshassert "bosh/assert"
-	"testing"
+	. "bosh/handler"
+	. "github.com/onsi/ginkgo"
 )
 
-func TestJsonWithValue(t *testing.T) {
-	resp := NewValueResponse("some value")
-	boshassert.MatchesJsonString(t, resp, `{"value":"some value"}`)
-}
+func init() {
+	Describe("Testing with Ginkgo", func() {
+		It("json with value", func() {
 
-func TestJsonWithException(t *testing.T) {
-	resp := NewExceptionResponse("oops!")
-	boshassert.MatchesJsonString(t, resp, `{"exception":{"message":"oops!"}}`)
+			resp := NewValueResponse("some value")
+			boshassert.MatchesJsonString(GinkgoT(), resp, `{"value":"some value"}`)
+		})
+		It("json with exception", func() {
+
+			resp := NewExceptionResponse("oops!")
+			boshassert.MatchesJsonString(GinkgoT(), resp, `{"exception":{"message":"oops!"}}`)
+		})
+	})
 }

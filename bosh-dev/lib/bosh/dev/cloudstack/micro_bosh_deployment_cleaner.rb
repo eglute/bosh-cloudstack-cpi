@@ -31,10 +31,29 @@ module Bosh::Dev::Cloudstack
 
         servers.empty?
       end
+
+      # destroy all images
+      cloud.compute.images.all.each do |image|
+        if image.name =~ /^BOSH/
+          @logger.info("Destroying image #{image.name}")
+          # image.destroy
+        else
+          @logger.info("Ignoring image #{image.name}")
+        end
+      end
+
+      # destroy unattached volumes
+      cloud.compute.volumes.all.each do |volume|
+        if volume.server_id.nil?
+          @logger.info("Destroying volume #{volume.name}")
+          # volume.destroy
+        end
+      end
+
     end
 
     def clean_server(server)
-      server.service.volumes.select { |volume|
+      server.service.volumes.all.select { |volume|
         volume.server_id == server.id &&
         volume.type != 'ROOT'
       }.each do |volume|

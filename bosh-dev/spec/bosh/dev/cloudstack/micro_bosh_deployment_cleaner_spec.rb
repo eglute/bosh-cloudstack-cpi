@@ -1,6 +1,8 @@
 require 'spec_helper'
 require 'fog'
+require 'fog/cloudstack/models/compute/images'
 require 'fog/cloudstack/models/compute/servers'
+require 'fog/cloudstack/models/compute/volumes'
 require 'bosh/dev/cloudstack/micro_bosh_deployment_cleaner'
 require 'bosh/dev/cloudstack/micro_bosh_deployment_manifest'
 
@@ -28,6 +30,12 @@ module Bosh::Dev::Cloudstack
 
       before { Logger.stub(new: logger) }
       let(:logger) { instance_double('Logger', info: nil) }
+
+      before { compute.stub(images: image_collection) }
+      let(:image_collection) { instance_double('Fog::Compute::Cloudstack::Images', all: []) }
+
+      before { compute.stub(volumes: volume_collection) }
+      let(:volume_collection) { instance_double('Fog::Compute::Cloudstack::Volumes', all: []) }
 
       it 'uses cloudstack cloud with cpi options from the manifest' do
         Bosh::CloudStackCloud::Cloud
@@ -109,10 +117,6 @@ module Bosh::Dev::Cloudstack
             service: compute,
           )
 
-          compute
-            .stub(:volumes)
-            .and_return([])
-
           %w{fake-id1 fake-id2}.each do |id|
             compute.should_receive(:list_tags)
               .with(resourceid: id)
@@ -150,13 +154,77 @@ module Bosh::Dev::Cloudstack
           cleaner.clean
         end
       end
+
+      context 'when images exist' do
+        let(:image_to_be_deleted_1) do
+          instance_double('Fog::Compute::Cloudstack::Image', name: 'BOSH-fake-image-1', destroy: nil)
+        end
+
+        let(:image_to_be_deleted_2) do
+          instance_double('Fog::Compute::Cloudstack::Image', name: 'BOSH-fake-image-2', destroy: nil)
+        end
+
+        let(:image_to_be_ignored) do
+          instance_double('Fog::Compute::Cloudstack::Image', name: 'some-other-fake-image', destroy: nil)
+        end
+
+        before { image_collection.stub(all: [image_to_be_deleted_1, image_to_be_deleted_2, image_to_be_ignored]) }
+
+        it 'deletes all images' do
+          pending
+          cleaner.clean
+
+          expect(image_to_be_deleted_1).to have_received(:destroy)
+          expect(image_to_be_deleted_2).to have_received(:destroy)
+          expect(image_to_be_ignored).to_not have_received(:destroy)
+        end
+
+        it 'logs messages' do
+          pending
+          cleaner.clean
+
+          expect(logger).to have_received(:info).with('Destroying image BOSH-fake-image-1')
+          expect(logger).to have_received(:info).with('Destroying image BOSH-fake-image-2')
+          expect(logger).to have_received(:info).with('Ignoring image some-other-fake-image')
+        end
+
+      end
+
+      context 'when unattached volumes exist' do
+        let(:volume1) do
+          instance_double('Fog::Compute::Cloudstack::Volume',
+                          name: 'fake-volume-1', server_id: nil, destroy: nil)
+        end
+
+        let(:volume2) do
+          instance_double('Fog::Compute::Cloudstack::Volume',
+                          server_id: 'fake-server-id')
+        end
+
+        before { volume_collection.stub(all: [volume1, volume2]) }
+
+        it 'deletes all unattached volumes' do
+          pending
+          expect(volume1).to receive(:destroy)
+          expect(volume2).to_not receive(:destroy)
+
+          cleaner.clean
+        end
+
+        it 'logs messages' do
+          pending
+          expect(logger).to receive(:info).with('Destroying volume fake-volume-1')
+
+          cleaner.clean
+        end
+      end
     end
 
     describe '#clean_server' do
       let(:compute) do
         double(
           'Fog::Compute::Cloudstack::Real',
-          volumes: [volume1, volume2]
+          volumes: instance_double('Fog::Compute::Cloudstack::Volumes', all: [volume1, volume2])
         )
       end
 

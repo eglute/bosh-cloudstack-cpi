@@ -1,31 +1,33 @@
---- 
-packages: 
+---
+packages:
 - name: batarang
   version: 1
-  sha1: 943d6eb3c624edfc5de3034a841d6fe4dc8f639f
-  fingerprint: 869bcfd61957538ba956d70ba4933b929fd11b86
-  dependencies: 
-  - ruby
+  sha1: !binary |-
+    M2MxZWZlODBhZWM2OTg0OGViNjQzNTA2NjhhNzVhNTFjYWFiMTc1NA==
+  fingerprint: !binary |-
+    MGVhZDVlMDA3OGQ2OGE1YTBiZDcyOTM1NmE1NDA1MGFjMDAzMzUyZg==
+  dependencies: []
 - name: batlight
   version: 1
-  sha1: d6729d3e9fd7004aef244f8e22c80545d33866df
-  fingerprint: f5a6120744b1564fc3d55809ac78ec1d7ecb76cd
+  sha1: !binary |-
+    YjdlZjE2NTYwMjUxOTM0MDA1NDIzYmRhZTQ5NjE4NWM3NmZhNDFhYw==
+  fingerprint: !binary |-
+    NGZmNWM1Y2IwZDFmNmQxMTlhYmNmYWFkZTg3M2Q2MzA3ZGNlMDM2NA==
   dependencies: []
-
-- name: ruby
-  version: 1
-  sha1: 6c4932613bd1576f7ab26e75db226bd33c805c71
-  fingerprint: 35096e6f2bff58d2df17aaf506bb8c72ed4103fb
-  dependencies: []
-
-jobs: 
+jobs:
 - name: batarang
-  version: 1
-  fingerprint: af342a0b564d2b27f121fe43fc108c88473e9508
-  sha1: 6519439be14be6ee52fd41428d3fd12f81f03ed2
-- name: batlight
   version: 2
-  fingerprint: b5ca595925b699b8a2d54ee57a814307af6c2355
-  sha1: 9d2a435d9d7910a9cc4ab608313b13c63e793612
+  fingerprint: !binary |-
+    ZjM3YjNlMzIzMjlkMGYwNmFkYWQ5YTA2ZDBmNjZmNWQ0MWYyN2RjNA==
+  sha1: !binary |-
+    ZDU3MjQ5N2VjNWVmYmIwNTg1ZjNhZmI1NzAxOTYxMWFlNTk5M2U4Yw==
+- name: batlight
+  version: 1
+  fingerprint: !binary |-
+    MmUyNjQzYjg3NzJkMDkxYmJjOTIyMDlmOWRhMmY1M2I2MDI2NDNhOQ==
+  sha1: !binary |-
+    NzFkZjMzZGMxZGVjNjU5ZTI0MzIzMzc2NzcwNGRmNmQwYjE4Y2JkOQ==
+commit_hash: 367a07d8
+uncommitted_changes: true
 name: bat
 version: 2

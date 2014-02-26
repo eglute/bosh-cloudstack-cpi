@@ -13,16 +13,20 @@ type FakeCmdRunner struct {
 	RunCommandsWithInput [][]string
 
 	CommandExistsValue bool
+	AvailableCommands  map[string]bool
 }
 
 type FakeCmdResult struct {
 	Stdout string
 	Stderr string
 	Error  error
+	Sticky bool //Set to true if this result should ALWAYS be returned for the given command
 }
 
 func NewFakeCmdRunner() *FakeCmdRunner {
-	return &FakeCmdRunner{}
+	return &FakeCmdRunner{
+		AvailableCommands: map[string]bool{},
+	}
 }
 
 func (runner *FakeCmdRunner) RunComplexCommand(cmd boshsys.Command) (stdout, stderr string, err error) {
@@ -50,7 +54,15 @@ func (runner *FakeCmdRunner) RunCommandWithInput(input, cmdName string, args ...
 }
 
 func (runner *FakeCmdRunner) CommandExists(cmdName string) (exists bool) {
-	return runner.CommandExistsValue
+	if runner.CommandExistsValue {
+		return true
+	}
+
+	if runner.AvailableCommands[cmdName] {
+		return true
+	}
+
+	return false
 }
 
 func (runner *FakeCmdRunner) AddCmdResult(fullCmd string, result FakeCmdResult) {
@@ -71,7 +83,10 @@ func (runner *FakeCmdRunner) getOutputsForCmd(runCmd []string) (stdout, stderr s
 		if len(results) > 1 {
 			newResults = results[1:]
 		}
-		runner.CommandResults[fullCmd] = newResults
+
+		if !result.Sticky {
+			runner.CommandResults[fullCmd] = newResults
+		}
 
 		stdout = result.Stdout
 		stderr = result.Stderr
