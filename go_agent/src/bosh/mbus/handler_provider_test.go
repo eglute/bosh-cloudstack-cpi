@@ -1,44 +1,56 @@
-package mbus
+package mbus_test
 
 import (
 	boshlog "bosh/logger"
+	. "bosh/mbus"
 	"bosh/micro"
 	fakeplatform "bosh/platform/fakes"
 	boshdir "bosh/settings/directories"
 	fakesettings "bosh/settings/fakes"
+	"github.com/cloudfoundry/yagnats"
+	. "github.com/onsi/ginkgo"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
-func TestHandlerProviderGetReturnsNatsHandler(t *testing.T) {
-	provider, platform, dirProvider := buildProvider("nats://0.0.0.0")
-	handler, err := provider.Get(platform, dirProvider)
-
-	assert.NoError(t, err)
-	assert.IsType(t, natsHandler{}, handler)
+type providerDeps struct {
+	settings    *fakesettings.FakeSettingsService
+	platform    *fakeplatform.FakePlatform
+	dirProvider boshdir.DirectoriesProvider
+	logger      boshlog.Logger
 }
 
-func TestHandlerProviderGetReturnsHttpsHandler(t *testing.T) {
-	provider, platform, dirProvider := buildProvider("https://0.0.0.0")
-	handler, err := provider.Get(platform, dirProvider)
+func buildProvider(mbusUrl string) (deps providerDeps, provider MbusHandlerProvider) {
+	deps.settings = &fakesettings.FakeSettingsService{MbusUrl: mbusUrl}
+	deps.logger = boshlog.NewLogger(boshlog.LEVEL_NONE)
+	provider = NewHandlerProvider(deps.settings, deps.logger)
 
-	assert.NoError(t, err)
-	assert.IsType(t, micro.HttpsHandler{}, handler)
-}
-
-func TestHandlerProviderGetReturnsAnErrorIfNotSupported(t *testing.T) {
-	provider, platform, dirProvider := buildProvider("foo://0.0.0.0")
-	_, err := provider.Get(platform, dirProvider)
-
-	assert.Error(t, err)
-}
-
-func buildProvider(mbusUrl string) (provider mbusHandlerProvider, platform *fakeplatform.FakePlatform, dirProvider boshdir.DirectoriesProvider) {
-	settings := &fakesettings.FakeSettingsService{MbusUrl: mbusUrl}
-	logger := boshlog.NewLogger(boshlog.LEVEL_NONE)
-	provider = NewHandlerProvider(settings, logger)
-
-	platform = fakeplatform.NewFakePlatform()
-	dirProvider = boshdir.NewDirectoriesProvider("/var/vcap")
+	deps.platform = fakeplatform.NewFakePlatform()
+	deps.dirProvider = boshdir.NewDirectoriesProvider("/var/vcap")
 	return
+}
+func init() {
+	Describe("Testing with Ginkgo", func() {
+		It("handler provider get returns nats handler", func() {
+			deps, provider := buildProvider("nats://0.0.0.0")
+			handler, err := provider.Get(deps.platform, deps.dirProvider)
+
+			assert.NoError(GinkgoT(), err)
+			assert.IsType(GinkgoT(), NewNatsHandler(deps.settings, deps.logger, yagnats.NewClient()), handler)
+		})
+		It("handler provider get returns https handler", func() {
+
+			deps, provider := buildProvider("https://0.0.0.0")
+			handler, err := provider.Get(deps.platform, deps.dirProvider)
+
+			assert.NoError(GinkgoT(), err)
+			assert.IsType(GinkgoT(), micro.HttpsHandler{}, handler)
+		})
+		It("handler provider get returns an error if not supported", func() {
+
+			deps, provider := buildProvider("foo://0.0.0.0")
+			_, err := provider.Get(deps.platform, deps.dirProvider)
+
+			assert.Error(GinkgoT(), err)
+		})
+	})
 }

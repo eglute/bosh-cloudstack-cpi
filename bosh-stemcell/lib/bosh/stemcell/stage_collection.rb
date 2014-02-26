@@ -60,6 +60,9 @@ module Bosh::Stemcell
           else
             vsphere_stages
           end
+        when Infrastructure::CloudStack then
+          # centos is not supported
+          cloudstack_stages
       end
     end
 
@@ -183,6 +186,27 @@ module Bosh::Stemcell
         :image_vsphere_prepare_stemcell,
         # Final stemcell
         :stemcell,
+      ]
+    end
+
+    def cloudstack_stages
+      [
+        # Misc
+        :system_appendix_cloudstack,
+        :system_cloudstack_network,
+        :system_cloudstack_clock,
+        :system_cloudstack_modules,
+        :system_parameters,
+        # Finalisation,
+        :bosh_clean,
+        :bosh_harden,
+        :bosh_harden_ssh,
+        # Image/bootloader
+        :image_create,
+        :image_install_grub,
+        :image_cloudstack_prepare_stemcell,
+        # Final stemcell
+        :stemcell_cloudstack
       ]
     end
   end

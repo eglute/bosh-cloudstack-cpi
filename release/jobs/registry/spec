@@ -70,3 +70,11 @@ properties:
     default: publicURL
   openstack.connection_options:
     description: Hash containing optional connection parameters to the OpenStack API
+
+  # For CloudStack
+  cloudstack.endpoint:
+    description: CloudStack Endpoint URL
+  cloudstack.api_key:
+    description: CloudStack API Key
+  cloudstack.secret_access_key:
+    description: CloudStack Secret Access Key

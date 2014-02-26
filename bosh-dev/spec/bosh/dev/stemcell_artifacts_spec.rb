@@ -9,7 +9,7 @@ module Bosh::Dev
 
         described_class.should_receive(:new) do |version, definitions|
           expect(version).to eq('version')
-          expect(definitions.size).to eq(6)
+          expect(definitions.size).to eq(8)
 
           matrix = definitions.map { |d| [d.infrastructure, d.operating_system, d.agent] }
 
@@ -19,6 +19,8 @@ module Bosh::Dev
           expect(matrix[3].map(&:name)).to eq(%w(aws       centos ruby))
           expect(matrix[4].map(&:name)).to eq(%w(openstack ubuntu ruby))
           expect(matrix[5].map(&:name)).to eq(%w(openstack centos ruby))
+          expect(matrix[6].map(&:name)).to eq(%w(cloudstack ubuntu ruby))
+          expect(matrix[7].map(&:name)).to eq(%w(cloudstack centos ruby))
 
           artifacts
         end
@@ -34,6 +36,7 @@ module Bosh::Dev
         [
           Bosh::Stemcell::Definition.for('vsphere', 'ubuntu', 'ruby'),
           Bosh::Stemcell::Definition.for('openstack', 'centos', 'go'),
+          Bosh::Stemcell::Definition.for('cloudstack', 'centos', 'go'),
         ]
       end
 
@@ -54,11 +57,21 @@ module Bosh::Dev
           .with(version, definitions[1], 'bosh-stemcell', false)
           .and_return('fake-version-archive-filename2')
 
+        Bosh::Stemcell::ArchiveFilename.stub(:new)
+          .with('latest', definitions[2], 'bosh-stemcell', false)
+          .and_return('fake-latest-archive-filename2')
+
+        Bosh::Stemcell::ArchiveFilename.stub(:new)
+          .with(version, definitions[2], 'bosh-stemcell', false)
+          .and_return('fake-version-archive-filename2')
+
         expect(artifacts.list.sort).to eq(%w[
           bosh-stemcell/vsphere/fake-version-archive-filename1
           bosh-stemcell/vsphere/fake-latest-archive-filename1
           bosh-stemcell/openstack/fake-version-archive-filename2
           bosh-stemcell/openstack/fake-latest-archive-filename2
+          bosh-stemcell/cloudstack/fake-version-archive-filename2
+          bosh-stemcell/cloudstack/fake-latest-archive-filename2
         ].sort)
       end
 

@@ -1,24 +1,55 @@
-package infrastructure
+package infrastructure_test
 
 import (
-	"github.com/stretchr/testify/assert"
-	"testing"
+	. "bosh/infrastructure"
+	fakeplatform "bosh/platform/fakes"
+	boshsettings "bosh/settings"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 )
 
-type FakeCDROMDelegate struct {
-}
+func init() {
+	Describe("Testing with Ginkgo", func() {
+		var (
+			vsphere  Infrastructure
+			platform *fakeplatform.FakePlatform
+		)
 
-func (fakeCDROMDelegate FakeCDROMDelegate) GetFileContentsFromCDROM(_ string) (contents []byte, err error) {
-	contents = []byte(`{"agent_id": "123"}`)
-	return
-}
+		BeforeEach(func() {
+			platform = fakeplatform.NewFakePlatform()
+		})
 
-func TestVsphereGetSettings(t *testing.T) {
-	cdromDelegate := FakeCDROMDelegate{}
-	vsphere := newVsphereInfrastructure(cdromDelegate)
+		JustBeforeEach(func() {
+			vsphere = NewVsphereInfrastructure(platform)
+		})
 
-	settings, err := vsphere.GetSettings()
+		It("vsphere get settings", func() {
+			platform.GetFileContentsFromCDROMContents = []byte(`{"agent_id": "123"}`)
 
-	assert.NoError(t, err)
-	assert.Equal(t, settings.AgentId, "123")
+			settings, err := vsphere.GetSettings()
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(platform.GetFileContentsFromCDROMPath).To(Equal("env"))
+			Expect(settings.AgentId).To(Equal("123"))
+		})
+
+		It("vsphere setup networking", func() {
+			networks := boshsettings.Networks{"bosh": boshsettings.Network{}}
+
+			vsphere.SetupNetworking(networks)
+
+			Expect(platform.SetupManualNetworkingNetworks).To(Equal(networks))
+		})
+
+		It("vsphere get ephemeral disk path", func() {
+			platform.NormalizeDiskPathRealPath = "/dev/sdb"
+			platform.NormalizeDiskPathFound = true
+
+			realPath, found := vsphere.GetEphemeralDiskPath("does not matter")
+			Expect(found).To(Equal(true))
+
+			Expect(realPath).To(Equal("/dev/sdb"))
+			Expect(platform.NormalizeDiskPathPath).To(Equal("/dev/sdb"))
+		})
+	})
 }

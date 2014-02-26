@@ -11,6 +11,8 @@ module Bosh::Dev
         Bosh::Stemcell::Definition.for('aws',       'centos', 'ruby'),
         Bosh::Stemcell::Definition.for('openstack', 'ubuntu', 'ruby'),
         Bosh::Stemcell::Definition.for('openstack', 'centos', 'ruby'),
+        Bosh::Stemcell::Definition.for('cloudstack', 'ubuntu', 'ruby'),
+        Bosh::Stemcell::Definition.for('cloudstack', 'centos', 'ruby'),
       ]
 
       new(version, definitions)

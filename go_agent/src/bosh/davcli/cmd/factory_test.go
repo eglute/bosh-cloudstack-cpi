@@ -1,40 +1,43 @@
-package cmd
+package cmd_test
 
 import (
-	davclient "bosh/davcli/client"
+	. "bosh/davcli/cmd"
 	davconf "bosh/davcli/config"
+	. "github.com/onsi/ginkgo"
 	"github.com/stretchr/testify/assert"
-	"testing"
+	"reflect"
 )
 
-func TestFactoryCreateAPutCommand(t *testing.T) {
-	client, factory := buildFactory()
-	cmd, err := factory.Create("put")
-
-	assert.NoError(t, err)
-	assert.Equal(t, cmd, newPutCmd(client))
-}
-
-func TestFactoryCreateAGetCommand(t *testing.T) {
-	client, factory := buildFactory()
-	cmd, err := factory.Create("get")
-
-	assert.NoError(t, err)
-	assert.Equal(t, cmd, newGetCmd(client))
-}
-
-func TestFactoryCreateWhenCmdIsUnknown(t *testing.T) {
-	_, factory := buildFactory()
-	_, err := factory.Create("some unknown cmd")
-
-	assert.Error(t, err)
-}
-
-func buildFactory() (client davclient.Client, factory Factory) {
+func buildFactory() (factory Factory) {
 	config := davconf.Config{User: "some user"}
-	client = davclient.NewClient(config)
 
 	factory = NewFactory()
 	factory.SetConfig(config)
 	return
+}
+func init() {
+	Describe("Testing with Ginkgo", func() {
+		It("factory create a put command", func() {
+			factory := buildFactory()
+			cmd, err := factory.Create("put")
+
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), reflect.TypeOf(cmd), reflect.TypeOf(PutCmd{}))
+		})
+		It("factory create a get command", func() {
+
+			factory := buildFactory()
+			cmd, err := factory.Create("get")
+
+			assert.NoError(GinkgoT(), err)
+			assert.Equal(GinkgoT(), reflect.TypeOf(cmd), reflect.TypeOf(GetCmd{}))
+		})
+		It("factory create when cmd is unknown", func() {
+
+			factory := buildFactory()
+			_, err := factory.Create("some unknown cmd")
+
+			assert.Error(GinkgoT(), err)
+		})
+	})
 }

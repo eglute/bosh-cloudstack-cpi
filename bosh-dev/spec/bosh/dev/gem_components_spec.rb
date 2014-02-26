@@ -65,6 +65,7 @@ module Bosh::Dev
           bosh_common
           bosh_cpi
           bosh_openstack_cpi
+          bosh_cloudstack_cpi
           bosh-registry
           bosh_vsphere_cpi
           bosh-director

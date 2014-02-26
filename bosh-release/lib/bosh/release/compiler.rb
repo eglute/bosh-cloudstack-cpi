@@ -158,6 +158,8 @@ module Bosh
           spec["networks"] = {"type" => "dynamic"}
         when "openstack"
           spec["networks"] = {"type" => "dynamic"}
+        when "cloudstack"
+          spec["networks"] = {"type" => "dynamic"}
         else
           puts "WARNING: no CPI specified"
         end

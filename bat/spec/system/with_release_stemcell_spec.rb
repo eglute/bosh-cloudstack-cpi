@@ -1,20 +1,10 @@
 require 'system/spec_helper'
 
 describe 'with release and stemcell and two deployments' do
-  let(:deployed_regexp) { /Deployed \`.*' to \`.*'/ }
-
   before(:all) do
     @requirements.requirement(@requirements.release)
     @requirements.requirement(@requirements.stemcell)
-  end
-
-  before(:all) do
-    @requirements.requirement(@requirements.previous_release)
     load_deployment_spec
-  end
-
-  after(:all) do
-    @requirements.cleanup(@requirements.previous_release)
   end
 
   context 'first deployment' do
@@ -47,7 +37,9 @@ describe 'with release and stemcell and two deployments' do
     it 'should not change the deployment on a noop' do
       deployment_result = bosh('deploy')
       events(get_task_id(deployment_result.output)).each do |event|
-        event['stage'].should_not match /^Updating/
+        if event['stage']
+          expect(event['stage']).to_not match(/^Updating/)
+        end
       end
     end
 
@@ -70,14 +62,15 @@ describe 'with release and stemcell and two deployments' do
 
     it 'should use job colocation', ssh: true do
       @jobs.each do |job|
-        grep = "pgrep -lf #{job}"
-        ssh(static_ip, 'vcap', grep, @our_ssh_options).should match /#{job}/
+        grep_cmd = "pgrep -lf #{job}"
+        ssh(static_ip, 'vcap', grep_cmd, @our_ssh_options).should match /#{job}/
       end
     end
 
     it 'should deploy using a static network', ssh: true do
       pending "doesn't work on AWS as the VIP IP isn't visible to the VM" if aws?
       pending "doesn't work on OpenStack as the VIP IP isn't visible to the VM" if openstack?
+      pending "doesn't work on CloudStack as the VIP IP isn't visible to the VM" if cloudstack?
       ssh(static_ip, 'vcap', '/sbin/ifconfig eth0', @our_ssh_options).should match /#{static_ip}/
     end
 
@@ -86,13 +79,16 @@ describe 'with release and stemcell and two deployments' do
 
       before(:all) do
         ssh(static_ip, 'vcap', "echo 'foobar' > #{SAVE_FILE}", @our_ssh_options)
-        @size = persistent_disk(static_ip)
+        @size = persistent_disk(static_ip, 'vcap', @our_ssh_options)
         use_persistent_disk(4096)
         @second_deployment_result = @requirements.requirement(deployment, @spec, force: true)
       end
 
       it 'should migrate disk contents', ssh: true do
-        persistent_disk(static_ip).should_not eq(@size)
+        unless cloudstack?
+          # doesn't work on CloudStack as the same Disk Offering could be choosed for different disk size requests
+          persistent_disk(static_ip, 'vcap', @our_ssh_options).should_not eq(@size)
+        end
         ssh(static_ip, 'vcap', "cat #{SAVE_FILE}", @our_ssh_options).should match /foobar/
       end
 
