@@ -364,6 +364,12 @@ networks:
     # Only for Advanced Zone users
     network_name: <network_name> # subnetwork
 
+# Only for Advanced Zone users
+# Network with floating IP addresses
+- name: floating
+  type: vip
+  cloud_properties: {}
+
 
 compilation:
   workers: 6
@@ -477,6 +483,14 @@ jobs:
     networks:
       - name: default
         default: [dns, gateway]
+
+      # Only for Advanced zone users
+      # You can set floating addresses to jobs
+      # Acquire Public IP addresses on your Web UI before deploying
+      # (Don't remove `default` network above even if `floating` is added)
+      - name: floating
+        static_ips:
+          - <IP address for Router>
 
   - name: health_manager
     release: cf
