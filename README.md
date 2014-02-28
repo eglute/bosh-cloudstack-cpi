@@ -50,6 +50,15 @@ You also need to create one or more security groups or firewall rules for VMs cr
 
 We recommend Ubuntu 12.04 64bit or later for your inception server. For those who use Ubuntu 12.10 or later we strongly recommand to select `Ubuntu 10.04` or later for the `OS type` while creating instance via ISO file or registering VM templates. Please don't select other Linux distributions like Centos or Apple Mac OS.
 
+You neeed to to activate the `acpiphp` kernel module to hot plug volumes to your inception server while deploying a MicroBOSH. Try commands below:
+
+```sh
+# Activate online
+sudo modprobe acpiphp
+# Persistent setting
+sudo sh -c "echo acpiphp >> /etc/modules"
+```
+
 CentOS is not tested and it would be not compatible with this CPI. Don't forget adding the security group which opens the port 25889 to the VM.
 
 
