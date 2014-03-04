@@ -283,7 +283,7 @@ Deployed `firstbosh/micro_bosh.yml' to `Unknown Director', took 00:12:21 to comp
 ```
 
 
-#### Traget Your MicroBOSH
+#### Target Your MicroBOSH
 
 Now you can use your MicroBOSH. Target your instance with the `bosh target` command. As you will be asked a user name and its password, give `admin` to the both prompt.
 
